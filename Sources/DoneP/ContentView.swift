@@ -12,7 +12,7 @@ struct ContentView: View {
     @State private var betaPopup: String? = nil
     @State private var skillCopied = false
     @State private var fsWatcher: DispatchSourceFileSystemObject? = nil
-    @State private var claudeSettingsWatcher: DispatchSourceFileSystemObject? = nil
+    @State private var codefuseBridgeWatcher: DispatchSourceFileSystemObject? = nil
 
     private let hook = HookManager.shared
 
@@ -265,35 +265,31 @@ struct ContentView: View {
         src.resume()
         fsWatcher = src
 
-        // 监 CodeFuse / antcc 实际生效的 hooks 文件 (~/.claude/settings.json)。
-        // CodeFuse 启动 session / 切项目 / antcc 都会改这个文件。文件一变就重注,
-        // 不轮询, 不耗资源 (kqueue 事件驱动)。
-        startClaudeSettingsWatcherIfNeeded()
+        // 监听真正的"事件源": CodeFuse / antcc 启动/切项目/退出 session 时,
+        // 会改 ~/.codefuse/automation-bridge.json (写入 lastHeartbeatAt)。
+        // 监这个, 不监 ~/.claude/settings.json (后者被 OpenClaw 自己高频改,
+        // 拿它当事件源是自反馈 → 死循环 → 2700+ 能量)。
+        startCodefuseBridgeWatcherIfNeeded()
     }
 
-    /// 监听 ~/.claude/settings.json: CodeFuse (antcc)、Claude CLI、任何 Claude
-    /// 内核的客户端启动/切项目时都会改这个文件。文件被外部改了就重注所有内置 agent。
-    /// 关键: 带 debounce + 只看 .write (不看 .attrib) — OpenClaw 自己的 mcp/perm 动作
-    /// 频繁动这个文件, 不 debounce 会事件洪水: kqueue 事件 → reinstall → 写文件 →
-    /// 事件 → 死循环, CPU 拉满 (2700+ 能量消耗就是这么来的)。
-    private static var claudeDebounceWork: DispatchWorkItem? = nil
-    private func startClaudeSettingsWatcherIfNeeded() {
-        guard claudeSettingsWatcher == nil else { return }
-        let path = ("~/.claude/settings.json" as NSString).expandingTildeInPath
+    /// 监听 CodeFuse 的 automation-bridge.json: CodeFuse 启动 session / 切项目
+    /// / 退出 session 都改这个文件 (写 lastHeartbeatAt)。这是"事件"不是"状态轮询"。
+    /// 与之前监 settings.json 的区别: OpenClaw 自己不会写 bridge.json, 写完之后
+    /// DoneP 不会反过来又改它, 不会循环。session 生命周期中的 mcp/perm 等高频
+    /// settings.json 写操作, DoneP 完全不醒 (不需重注 — 重注只为了 session 启动
+    /// 时补被清理的 hook)。
+    private func startCodefuseBridgeWatcherIfNeeded() {
+        guard codefuseBridgeWatcher == nil else { return }
+        let path = ("~/.codefuse/automation-bridge.json" as NSString).expandingTildeInPath
+        // bridge.json 可能在 CodeFuse 未安装时不存在 — open() 会返回 -1, 跳过
         let fd = open(path, O_EVTONLY)
         guard fd >= 0 else { return }
         let src = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd, eventMask: [.write, .delete, .rename], queue: .main)
-        src.setEventHandler {
-            // 500ms debounce: 连续的写合并为一次重注
-            Self.claudeDebounceWork?.cancel()
-            let work = DispatchWorkItem { Self.reinstallAllEnabledBuiltins() }
-            Self.claudeDebounceWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
-        }
+        src.setEventHandler { Self.reinstallAllEnabledBuiltins() }
         src.setCancelHandler { close(fd) }
         src.resume()
-        claudeSettingsWatcher = src
+        codefuseBridgeWatcher = src
     }
 
     /// 关闭自定义 agent: 改注册文件 enabled=false, 并执行其 uninstall 命令
