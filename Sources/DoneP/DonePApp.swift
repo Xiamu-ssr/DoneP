@@ -18,5 +18,7 @@ struct DonePApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        // 启动时安装/更新 skill 到 ~/.donep/skill/SKILL.md
+        DonePSkill.install()
     }
 }

@@ -33,13 +33,24 @@ flowchart LR
 2. **打开 DoneP**，菜单栏点铃铛 → topic 已自动生成好，点「测试」确认手机收到
 3. **给想提醒的 Agent 拨开开关** —— 完事
 
-| 支持的 Agent | 配置文件 |
+| 内置支持 | 配置位置 |
 |---|---|
 | Claude Code（含 antcc） | `~/.claude/settings.json` |
 | Codex | `~/.codex/hooks.json` |
-| CodeFuse | `~/.codefuse/hooks.json` |
+| CodeFuse（beta） | `~/.codefuse/engine/cc/settings.json` |
+| OpenClaw（beta） | `~/.openclaw/hooks/donep/`（`agent_end` 事件） |
 
-> DoneP 只把 `donep-notify` 安全注入/移除到各 Agent 的 `Stop` 钩子，**保留你已有的其它钩子**并自动备份 `*.bak-donep-*`。`Stop` = 整轮结束停下等输入那一刻，不会过程中狂震。
+> DoneP 只把 `donep-notify` 安全注入/移除到各 Agent 的结束钩子，**保留你已有的其它钩子**并自动备份 `*.bak-donep-*`。结束钩子 = 整轮结束停下等输入那一刻，不会过程中狂震。
+>
+> 标 **beta** 的 Agent 被其客户端托管，hook 不一定生效；改后需重启该 Agent。
+
+### 接入你自己的 Agent（Agent 时代玩法）
+
+不需要 DoneP 源码。把 DoneP 面板上显示的 skill 路径（`~/.donep/skill/SKILL.md`）发给你的 AI，让它读完自动接入。约定很简单：
+
+- **注册**：往 `~/.donep/agents/<id>.json` 写 `{ "name": "MyBot" }`，DoneP 面板自动出现开关（目录监听，零轮询）。
+- **通知**：干完活时调 `'~/Library/Application Support/DoneP/donep-notify' --agent 'MyBot'`（或再跟标题/正文自定义）。你不需要知道 ntfy 地址。
+- **卸载**（可选）：注册文件里写 `uninstall` 命令，用户在面板关开关时 DoneP 代为清理。
 
 ## 安装
 
@@ -52,8 +63,8 @@ flowchart LR
 ## 构建
 
 ```bash
-./scripts/build-app.sh 0.4.0   # 编译 + 组装 DoneP.app
-./scripts/make-dmg.sh 0.4.0    # 打包 DMG
+./scripts/build-app.sh 0.6.0   # 编译 + 组装 DoneP.app
+./scripts/make-dmg.sh 0.6.0    # 打包 DMG
 ```
 
 ## ☕ 请我喝咖啡
