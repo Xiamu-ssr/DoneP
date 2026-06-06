@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var customAgents: [CustomAgent] = []
     @State private var betaPopup: String? = nil
     @State private var skillCopied = false
+    @State private var refreshSpin = 0.0
     @State private var fsWatcher: DispatchSourceFileSystemObject? = nil
 
     private let hook = HookManager.shared
@@ -38,9 +39,11 @@ struct ContentView: View {
                 Spacer()
                 Text("任务完成 · 震你手表").font(.caption).foregroundStyle(.secondary)
                 Button {
+                    withAnimation(.easeInOut(duration: 0.6)) { refreshSpin += 360 }
                     reloadAll()
                 } label: {
                     Image(systemName: "arrow.clockwise")
+                        .rotationEffect(.degrees(refreshSpin))
                 }
                 .buttonStyle(.borderless)
                 .help("刷新各 Agent 开关状态")
