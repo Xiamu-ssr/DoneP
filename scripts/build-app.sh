@@ -44,6 +44,11 @@ if [ -f "Resources/AppIcon.icns" ]; then
     /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$APP/Contents/Info.plist" 2>/dev/null || true
 fi
 
+# 收款码 / 其它资源
+if [ -f "Resources/donate-wechat.png" ]; then
+    cp "Resources/donate-wechat.png" "$APP/Contents/Resources/donate-wechat.png"
+fi
+
 echo "==> ad-hoc 签名"
 codesign --force --deep --sign - "$APP"
 

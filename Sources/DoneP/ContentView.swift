@@ -5,6 +5,7 @@ struct ContentView: View {
     @State private var installed: [String: Bool] = [:]
     @State private var status: String = ""
     @State private var lastTestOK: Bool? = nil
+    @State private var showDonate = false
 
     private let hook = HookManager.shared
 
@@ -64,12 +65,22 @@ struct ContentView: View {
             Divider()
 
             HStack {
-                Text("OpenClaw 无需开关 (内部直接调脚本)")
-                    .font(.caption2).foregroundStyle(.secondary)
+                Button {
+                    showDonate.toggle()
+                } label: {
+                    Label("请我喝咖啡", systemImage: "cup.and.saucer.fill")
+                }
+                .controlSize(.small)
+                .popover(isPresented: $showDonate, arrowEdge: .top) {
+                    DonateView()
+                }
                 Spacer()
                 Button("退出") { NSApplication.shared.terminate(nil) }
                     .controlSize(.small)
             }
+
+            Text("OpenClaw 无需开关 (内部直接调脚本)")
+                .font(.caption2).foregroundStyle(.secondary)
         }
         .padding(16)
         .frame(width: 340)

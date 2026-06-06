@@ -60,6 +60,15 @@ DoneP 只做一件事：**把 `donep-notify` 脚本安全地注入/移除到各 
 DoneP 目前只做 ad-hoc 签名（未经 Apple 公证）。首次打开如被 Gatekeeper 拦截：
 右键 App → 打开，或在「系统设置 → 隐私与安全性」里点「仍要打开」。
 
+## ☕ 请我喝咖啡
+
+如果 DoneP 帮你少盯了几次屏幕，欢迎微信扫码请杯咖啡 🙏
+（App 里也有「请我喝咖啡」按钮，点开即可扫码）
+
+<img src="Resources/donate-wechat.png" width="220" alt="微信收款码" />
+
+> DoneP 永久免费开源，打赏纯属自愿，分文不取也照样能用 😄
+
 ## License
 
 MIT
