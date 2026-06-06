@@ -37,6 +37,13 @@ struct ContentView: View {
                 Text("DoneP").font(.headline)
                 Spacer()
                 Text("任务完成 · 震你手表").font(.caption).foregroundStyle(.secondary)
+                Button {
+                    reloadAll()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .help("刷新各 Agent 开关状态")
             }
 
             Divider()
@@ -49,12 +56,6 @@ struct ContentView: View {
                 HStack {
                     TextField("topic (你的专属频道名)", text: $settings.topic)
                         .textFieldStyle(.roundedBorder)
-                    Button {
-                        settings.topic = DonePSettings.makeDefaultTopic()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .help("重新生成一个随机 topic")
                     Button("测试") { sendTest() }
                         .disabled(!settings.isConfigured)
                 }
@@ -301,7 +302,7 @@ struct ContentView: View {
             try hook.writeNotifyScript(server: settings.server, topic: settings.topic)
             if on { try hook.install(agent) } else { try hook.uninstall(agent) }
             installed[agent.id] = on
-            // 记录用户意图 (供 app 启动 / 60s 自愈用, 不被 CodeFuse cleanup 干扰)
+            // 记录用户意图 (供 app 启动 / 面板打开时确保 hook 在位)
             UserDefaults.standard.set(on, forKey: "donep.intent.\(agent.id)")
         } catch {
             status = "操作失败: \(error.localizedDescription)"
