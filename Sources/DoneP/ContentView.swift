@@ -12,7 +12,6 @@ struct ContentView: View {
     @State private var betaPopup: String? = nil
     @State private var skillCopied = false
     @State private var fsWatcher: DispatchSourceFileSystemObject? = nil
-    @State private var codefuseBridgeWatcher: DispatchSourceFileSystemObject? = nil
 
     private let hook = HookManager.shared
 
@@ -205,9 +204,9 @@ struct ContentView: View {
         customAgents = DonePRegistry.scan()
         startWatchingIfNeeded()
         refresh()
-        // 启动 / 重新激活时, 对所有"开着的"内置 agent 重新注入 hook。
-        // 原因: CodeFuse 自己的 cleanup 会覆写 hooks.json, 让 DoneP 注入消失;
-        // 我们每次激活面板就 idempotent 重注一次, 不依赖用户手动 toggle。
+        // 面板打开时跑一次轻量校验 (用户主动触发, 低频)。
+        // install() 幂等 + saveJSON 内容去重: 内容没变就不写文件, 零成本。
+        // 作为"万一 hook 丢了"的安全网 — 但实测 hook 从不丢。
         reinstallEnabledBuiltins()
     }
 
@@ -215,11 +214,10 @@ struct ContentView: View {
         Self.reinstallAllEnabledBuiltins()
     }
 
-    /// 在 app 启动 + 面板重新打开 + 文件被外部改时都调 (kqueue 事件驱动, 不轮询)。
-    /// 只重注"用户明确 toggle ON 过"的内置 agent (UserDefaults 记住意图),
-    /// 不管文件里现在什么状态 — CodeFuse 自身 cleanup 会随重启 / 切项目
-    /// 把我们的 hook 注入抹掉, 这个函数是"防护 + 自愈": 文件被改 → 重注
-    /// 用户表达过"要"的 agent。
+    /// 仅在 app 启动 / 面板打开时跑 (用户主动, 低频)。
+    /// 把"用户 toggle ON 过"的内置 agent (UserDefaults 记意图) 确保 hook 在位。
+    /// install() 幂等 + saveJSON 内容去重: 已装且内容没变就不写文件, 零成本。
+    /// 不监听外部文件、不自愈 — 实测 (1940 备份) hook 从不被外部抹掉。
     static func reinstallAllEnabledBuiltins() {
         let h = HookManager.shared
         try? h.writeNotifyScript(server: DonePSettings.shared.server, topic: DonePSettings.shared.topic)
@@ -264,32 +262,10 @@ struct ContentView: View {
         src.setCancelHandler { close(fd) }
         src.resume()
         fsWatcher = src
-
-        // 监听真正的"事件源": CodeFuse / antcc 启动/切项目/退出 session 时,
-        // 会改 ~/.codefuse/automation-bridge.json (写入 lastHeartbeatAt)。
-        // 监这个, 不监 ~/.claude/settings.json (后者被 OpenClaw 自己高频改,
-        // 拿它当事件源是自反馈 → 死循环 → 2700+ 能量)。
-        startCodefuseBridgeWatcherIfNeeded()
-    }
-
-    /// 监听 CodeFuse 的 automation-bridge.json: CodeFuse 启动 session / 切项目
-    /// / 退出 session 都改这个文件 (写 lastHeartbeatAt)。这是"事件"不是"状态轮询"。
-    /// 与之前监 settings.json 的区别: OpenClaw 自己不会写 bridge.json, 写完之后
-    /// DoneP 不会反过来又改它, 不会循环。session 生命周期中的 mcp/perm 等高频
-    /// settings.json 写操作, DoneP 完全不醒 (不需重注 — 重注只为了 session 启动
-    /// 时补被清理的 hook)。
-    private func startCodefuseBridgeWatcherIfNeeded() {
-        guard codefuseBridgeWatcher == nil else { return }
-        let path = ("~/.codefuse/automation-bridge.json" as NSString).expandingTildeInPath
-        // bridge.json 可能在 CodeFuse 未安装时不存在 — open() 会返回 -1, 跳过
-        let fd = open(path, O_EVTONLY)
-        guard fd >= 0 else { return }
-        let src = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd, eventMask: [.write, .delete, .rename], queue: .main)
-        src.setEventHandler { Self.reinstallAllEnabledBuiltins() }
-        src.setCancelHandler { close(fd) }
-        src.resume()
-        codefuseBridgeWatcher = src
+        // 注: 不监听任何外部 agent 的 settings/hook 文件。
+        // 事实 (1940 个备份验证): 装上的 hook 从来不会被外部抹掉。
+        // "自愈"是多余的 — 装上就完了。只监 DoneP 自己的注册目录
+        // (检测外部 agent 通过 skill 注册, handler 只读不写, 不循环)。
     }
 
     /// 关闭自定义 agent: 改注册文件 enabled=false, 并执行其 uninstall 命令
