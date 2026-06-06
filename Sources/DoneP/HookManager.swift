@@ -22,6 +22,10 @@ enum DonePConst {
     static var notifyScriptPath: String {
         (supportDir as NSString).appendingPathComponent("donep-notify")
     }
+    /// 写进 hooks 的命令字符串: 路径含空格, 必须加单引号, 否则 shell 拆词导致 exit 127
+    static var notifyCommand: String {
+        "'\(notifyScriptPath)'"
+    }
 }
 
 /// 受支持的 Agent 列表 (都是 Claude Code 内核的 hooks.json / settings.json 结构)
@@ -36,6 +40,12 @@ final class HookManager {
     static let shared = HookManager()
 
     private let fm = FileManager.default
+
+    /// 判断某条命令是否是 DoneP 注入的 (兼容带引号/不带引号两种历史写法)
+    static func isDonePCommand(_ cmd: String?) -> Bool {
+        guard let cmd = cmd else { return false }
+        return cmd.contains(DonePConst.notifyScriptPath)
+    }
 
     // MARK: - 脚本管理
 
@@ -98,7 +108,7 @@ final class HookManager {
               let stop = hooks["Stop"] as? [[String: Any]] else { return false }
         for group in stop {
             if let hs = group["hooks"] as? [[String: Any]] {
-                for h in hs where (h["command"] as? String) == DonePConst.notifyScriptPath {
+                for h in hs where Self.isDonePCommand(h["command"] as? String) {
                     return true
                 }
             }
@@ -112,16 +122,16 @@ final class HookManager {
         var hooks = (obj["hooks"] as? [String: Any]) ?? [:]
         var stop = (hooks["Stop"] as? [[String: Any]]) ?? []
 
-        // 去重
+        // 去重 (兼容旧的无引号写法)
         let already = stop.contains { group in
             (group["hooks"] as? [[String: Any]])?.contains {
-                ($0["command"] as? String) == DonePConst.notifyScriptPath
+                Self.isDonePCommand($0["command"] as? String)
             } ?? false
         }
         if !already {
             stop.append([
                 "hooks": [
-                    ["command": DonePConst.notifyScriptPath, "type": "command", "timeout": 10]
+                    ["command": DonePConst.notifyCommand, "type": "command", "timeout": 10]
                 ]
             ])
         }
@@ -138,7 +148,7 @@ final class HookManager {
 
         stop = stop.compactMap { group -> [String: Any]? in
             guard var hs = group["hooks"] as? [[String: Any]] else { return group }
-            hs.removeAll { ($0["command"] as? String) == DonePConst.notifyScriptPath }
+            hs.removeAll { Self.isDonePCommand($0["command"] as? String) }
             if hs.isEmpty { return nil }  // 整组空了就删掉
             var g = group; g["hooks"] = hs; return g
         }
