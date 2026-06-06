@@ -94,17 +94,29 @@ final class HookManager {
         PROJ_DIR="${CLAUDE_PROJECT_DIR:-${CODEX_PROJECT_DIR:-$PWD}}"
         PROJ="$(basename "$PROJ_DIR" 2>/dev/null)"
 
-        # 尝试从 stdin 的 Claude 风格 JSON 里捡最后一条 assistant 回复摘要
-        # 拿不到就降级(不报错, 不阻塞), 符合健壮性原则
+        # 从 stdin 的 hook JSON 里取 transcript_path, 读最后一条 assistant 回复全文。
+        # 同时兼容两种格式:
+        #   Claude: 行 {type:"assistant", message:{content:[{type:"text",text}]}} 或 {role:"assistant",content:...}
+        #   Codex : 行 {type:"response_item", payload:{type:"message",role:"assistant",content:[{type:"output_text",text}]}}
+        # 不截断 — 手表/手机端自己会截。拿不到就降级(不报错不阻塞)。
         REPLY=""
         if [ ! -t 0 ]; then
           STDIN_JSON="$(cat 2>/dev/null)"
           if [ -n "$STDIN_JSON" ] && command -v python3 >/dev/null 2>&1; then
             REPLY="$(printf '%s' "$STDIN_JSON" | python3 -c '
         import sys,json,os
+        def texts_from_content(c):
+            out=[]
+            if isinstance(c,list):
+                for b in c:
+                    if isinstance(b,dict) and b.get("type") in ("text","output_text") and isinstance(b.get("text"),str):
+                        out.append(b["text"])
+            elif isinstance(c,str):
+                out.append(c)
+            return "".join(out)
         try:
             d=json.load(sys.stdin)
-            tp=d.get("transcript_path","")
+            tp=d.get("transcript_path") or d.get("transcriptPath") or d.get("TranscriptPath") or ""
             txt=""
             if tp and os.path.exists(os.path.expanduser(tp)):
                 last=""
@@ -113,18 +125,21 @@ final class HookManager {
                     if not line: continue
                     try: o=json.loads(line)
                     except: continue
-                    m=o.get("message") or o
-                    if (o.get("type")=="assistant") or (m.get("role")=="assistant"):
-                        c=m.get("content")
-                        if isinstance(c,list):
-                            for b in c:
-                                if isinstance(b,dict) and b.get("type")=="text":
-                                    last=b.get("text","") or last
-                        elif isinstance(c,str):
-                            last=c or last
+                    # Codex: payload 包一层
+                    p=o.get("payload") if isinstance(o.get("payload"),dict) else None
+                    if p is not None:
+                        if p.get("type")=="message" and p.get("role")=="assistant":
+                            t=texts_from_content(p.get("content"))
+                            if t.strip(): last=t
+                        continue
+                    # Claude: 顶层 type=assistant 或 message.role=assistant
+                    m=o.get("message") if isinstance(o.get("message"),dict) else o
+                    if o.get("type")=="assistant" or m.get("role")=="assistant":
+                        t=texts_from_content(m.get("content"))
+                        if t.strip(): last=t
                 txt=last
             txt=" ".join(txt.split())
-            print(txt[:24])
+            print(txt)
         except Exception:
             print("")
         ' 2>/dev/null)"
@@ -139,10 +154,9 @@ final class HookManager {
           # 只传一个参数 -> 当正文
           TITLE="✅ ${AGENT:-Agent}"; MSG="$1"
         else
-          # A) 智能生成: 标题=哪个端, 正文=项目 + 回复摘要(无时间, 省空间)
+          # A) 智能生成: 标题=哪个端, 正文=回复全文(拿不到才降级到项目名)
           TITLE="✅ ${AGENT:-Agent}"
-          if [ -n "$REPLY" ] && [ -n "$PROJ" ]; then MSG="${PROJ} · ${REPLY}…"
-          elif [ -n "$REPLY" ]; then MSG="${REPLY}…"
+          if [ -n "$REPLY" ]; then MSG="${REPLY}"
           elif [ -n "$PROJ" ]; then MSG="${PROJ}"
           else MSG="完成"; fi
         fi
