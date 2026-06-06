@@ -96,7 +96,7 @@ struct ContentView: View {
                                             get: { betaPopup == agent.id },
                                             set: { if !$0 { betaPopup = nil } }
                                         ), arrowEdge: .bottom) {
-                                            Text("CodeFuse UI 模式用 --settings 覆盖\nuser/project hooks, 外部 Stop hook 走\n不通。\n• antcc 模式 (走 ~/.claude/settings.json) ✅\n• CodeFuse UI 模式 (走 --settings 注入) ❌")
+                                            Text("CodeFuse UI 模式用 --settings 覆盖\nuser/project hooks, 外部 Stop hook 走\n不通。\n• antcc 模式 (走 ~/.claude/settings.json) ✅\n• CodeFuse UI 模式 (走 --settings 注入) ❌\n\nOpenClaw: 开启后自动装插件 +\nallowConversationAccess, 但需\ngateway restart 才生效。")
                                                 .font(.caption).padding(10).frame(width: 220)
                                         }
                                     }

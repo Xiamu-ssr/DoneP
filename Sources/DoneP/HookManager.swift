@@ -49,7 +49,7 @@ let BUILTIN_AGENTS: [AgentDef] = [
     AgentDef(id: "codex",    name: "Codex",       configPath: "~/.codex/hooks.json",                 note: "OpenAI Codex CLI"),
     AgentDef(id: "codefuse", name: "CodeFuse (antcc)", configPath: "~/.claude/settings.json",            note: "antcc 模式 (走 Claude 内核, 与 Claude 开关同文件 — 不会重复注入)"),
     AgentDef(id: "codefuse-ui", name: "CodeFuse (UI)",   configPath: "(不支持)",                       note: "CodeFuse Electron 客户端用 --settings 覆盖, 外部 hook 走不通", beta: true, isSupported: false),
-    AgentDef(id: "openclaw", name: "OpenClaw",    configPath: "~/.openclaw/hooks/donep",             note: "OpenClaw (agent_end 事件, 开启后需 gateway restart)", kind: .openclaw),
+    AgentDef(id: "openclaw", name: "OpenClaw",    configPath: "(plugin)",                              note: "真插件 api.on(agent_end); 开后自动写 openclaw.json + 装插件, 需 gateway restart", kind: .openclaw),
 ]
 
 /// 负责把 donep-notify 注入/移除到各 Agent 的 Stop 钩子
@@ -194,7 +194,18 @@ final class HookManager {
     /// 该 Agent 的 Stop 钩子里是否已装 DoneP
     func isInstalled(_ agent: AgentDef) -> Bool {
         if agent.kind == .openclaw {
-            return fm.fileExists(atPath: (agent.expandedPath as NSString).appendingPathComponent("HOOK.md"))
+            // 插件文件都在 && openclaw.json 里 entries.donep.enabled == true → 已装
+            let extDir = ("~/.openclaw/extensions/donep" as NSString).expandingTildeInPath
+            let hasFiles = fm.fileExists(atPath: (extDir as NSString).appendingPathComponent("index.js"))
+                && fm.fileExists(atPath: (extDir as NSString).appendingPathComponent("openclaw.plugin.json"))
+            guard hasFiles,
+                  let data = try? Data(contentsOf: URL(fileURLWithPath: ("~/.openclaw/openclaw.json" as NSString).expandingTildeInPath)),
+                  let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let entries = (obj["plugins"] as? [String: Any])?["entries"] as? [String: Any],
+                  let entry = entries["donep"] as? [String: Any],
+                  let enabled = entry["enabled"] as? Bool
+            else { return false }
+            return enabled
         }
         // 不支持的 Agent (如 CodeFuse UI 模式): 一直返回 false, 开关是置灰的。
         if !agent.isSupported { return false }
@@ -241,7 +252,23 @@ final class HookManager {
     func uninstall(_ agent: AgentDef) throws {
         if !agent.isSupported { return }  // 不支持的: 不用卸
         if agent.kind == .openclaw {
-            try? fm.removeItem(atPath: agent.expandedPath)
+            // 1) 删插件文件
+            let extDir = ("~/.openclaw/extensions/donep" as NSString).expandingTildeInPath
+            try? fm.removeItem(atPath: extDir)
+            // 2) 删 openclaw.json 里 entries.donep
+            let cfgPath = ("~/.openclaw/openclaw.json" as NSString).expandingTildeInPath
+            if let data = try? Data(contentsOf: URL(fileURLWithPath: cfgPath)),
+               var cfg = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+               var plugins = cfg["plugins"] as? [String: Any],
+               var entries = plugins["entries"] as? [String: Any] {
+                entries.removeValue(forKey: "donep")
+                plugins["entries"] = entries
+                cfg["plugins"] = plugins
+                if let out = try? JSONSerialization.data(withJSONObject: cfg,
+                                                          options: [.prettyPrinted, .withoutEscapingSlashes]) {
+                    try? out.write(to: URL(fileURLWithPath: cfgPath))
+                }
+            }
             return
         }
         var obj = loadJSON(agent.expandedPath)
@@ -259,37 +286,116 @@ final class HookManager {
         try saveJSON(obj, to: agent.expandedPath)
     }
 
-    // MARK: - OpenClaw 特殊安装 (file-based hook: HOOK.md + handler.ts)
-    /// 监听 agent_end, 调 donep-notify --agent 'OpenClaw'
+    // MARK: - OpenClaw 特殊安装
+    /// OpenClaw 不走 file-based HOOK.md(那套不派发 agent_end), 走真插件 `api.on("agent_end", ...)`。
+    /// toggle ON 时做两件事:
+    ///   1) 把 bundled 插件复制到 `~/.openclaw/extensions/donep/` (免用户手跳 openclaw plugins install)
+    ///   2) 在 `~/.openclaw/openclaw.json` 里给 donep entry 加上
+    ///      `hooks.allowConversationAccess: true` (OpenClaw 默认拒绝第三方 plugin 监听
+    ///      会接 conversation 内容的事件, 必须显式 opt-in; 写完需 `openclaw restart` 才生效)
+    ///   3) `~/.openclaw/openclaw.json` 里 `plugins.entries.donep.enabled: true`
     private func installOpenClaw(_ agent: AgentDef) throws {
-        let dir = agent.expandedPath
-        try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        let hookMd = #"""
-        ---
-        name: donep
-        description: "DoneP: agent 跑完一轮后震你一下 (推送到 ntfy/手表)"
-        metadata:
-          { "openclaw": { "emoji": "\#("\u{1F514}")", "events": ["agent_end"] } }
-        ---
-        # DoneP Hook
-        Agent 一轮结束(agent_end)时调用 donep-notify。
+        // 1) bundled 插件源码 — 在 app bundle 里(我们 build 时 copy 进去)。
+        // 2) 不依赖 build process: 这几个常量代码与 openclaw-plugin/index.js 一致
+        // 3) 源码嵌入, 不需访问 bundle 资源。
+        let extDir = ("~/.openclaw/extensions/donep" as NSString).expandingTildeInPath
+        try fm.createDirectory(atPath: extDir, withIntermediateDirectories: true)
+        let pluginJson = #"""
+        {
+          "id": "donep",
+          "name": "DoneP",
+          "description": "Agent 跑完一轮 (agent_end) 时推一条通知到 ntfy/手表。",
+          "activation": { "onStartup": true },
+          "enabledByDefault": true,
+          "configSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {}
+          }
+        }
         """#
-        let handler = #"""
-        // DoneP 自动生成: 监听 agent_end, 调 donep-notify
-        import { spawn } from "node:child_process";
-        const SCRIPT = "__SCRIPT__";
-        const handler = async (event) => {
-          if (event?.type !== "agent_end") return;
+        let pluginJs = #"""
+        // DoneP OpenClaw 插件: 监听 agent_end (一轮真正结束), 推送通知到 ntfy。
+        // 不用 child_process (OpenClaw 安全扫描拦 shell 执行), 直接 fetch。
+        // ntfy 的 server/topic 从 DoneP 生成的 donep-notify 脚本里解析 (同源, 无需重复配置)。
+        import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
+        import os from "node:os";
+        import path from "node:path";
+        import fs from "node:fs";
+
+        const NOTIFY_SCRIPT = path.join(
+          os.homedir(),
+          "Library/Application Support/DoneP/donep-notify"
+        );
+
+        function readNtfyConfig() {
           try {
-            spawn(SCRIPT, ["--agent", "OpenClaw"], { detached: true, stdio: "ignore" }).unref();
+            const s = fs.readFileSync(NOTIFY_SCRIPT, "utf8");
+            const server = (s.match(/NTFY_SERVER="([^"]+)"/) || [])[1];
+            const topic = (s.match(/NTFY_TOPIC="([^"]+)"/) || [])[1];
+            if (server && topic) return { server, topic };
           } catch (_) {}
-        };
-        export default handler;
+          return null;
+        }
+
+        export default definePluginEntry({
+          id: "donep",
+          name: "DoneP",
+          register(api) {
+            api.on("agent_end", async (event) => {
+              try {
+                if (event && event.success === false) return;
+                const c = readNtfyConfig();
+                if (!c) return;
+                await fetch(c.server + "/" + c.topic, {
+                  method: "POST",
+                  headers: { Title: "✅ OpenClaw", Tags: "bell" },
+                  body: "完成",
+                }).catch(() => {});
+              } catch (_) {}
+            }, { priority: 10 });
+          },
+        });
         """#
-        .replacingOccurrences(of: "__SCRIPT__", with: DonePConst.notifyScriptPath)
-        try hookMd.write(toFile: (dir as NSString).appendingPathComponent("HOOK.md"),
-                         atomically: true, encoding: .utf8)
-        try handler.write(toFile: (dir as NSString).appendingPathComponent("handler.ts"),
-                          atomically: true, encoding: .utf8)
+        let packageJson = #"""
+        {
+          "name": "donep-openclaw",
+          "version": "0.1.0",
+          "type": "module",
+          "main": "index.js",
+          "openclaw": { "extensions": ["./index.js"] }
+        }
+        """#
+        try pluginJson.write(toFile: (extDir as NSString).appendingPathComponent("openclaw.plugin.json"),
+                             atomically: true, encoding: .utf8)
+        try pluginJs.write(toFile: (extDir as NSString).appendingPathComponent("index.js"),
+                           atomically: true, encoding: .utf8)
+        try packageJson.write(toFile: (extDir as NSString).appendingPathComponent("package.json"),
+                              atomically: true, encoding: .utf8)
+
+        // 2) 3) 修改 openclaw.json
+        let cfgPath = ("~/.openclaw/openclaw.json" as NSString).expandingTildeInPath
+        var cfg: [String: Any]
+        if let data = try? Data(contentsOf: URL(fileURLWithPath: cfgPath)),
+           let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+            cfg = obj
+        } else {
+            cfg = [:]
+        }
+        var plugins = (cfg["plugins"] as? [String: Any]) ?? [:]
+        var entries = (plugins["entries"] as? [String: Any]) ?? [:]
+        var entry = (entries["donep"] as? [String: Any]) ?? [:]
+        entry["enabled"] = true
+        var hooks = (entry["hooks"] as? [String: Any]) ?? [:]
+        hooks["allowConversationAccess"] = true
+        entry["hooks"] = hooks
+        entries["donep"] = entry
+        plugins["entries"] = entries
+        cfg["plugins"] = plugins
+
+        if let data = try? JSONSerialization.data(withJSONObject: cfg,
+                                                  options: [.prettyPrinted, .withoutEscapingSlashes]) {
+            try? data.write(to: URL(fileURLWithPath: cfgPath))
+        }
     }
 }
