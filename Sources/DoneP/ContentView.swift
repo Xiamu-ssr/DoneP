@@ -12,7 +12,7 @@ struct ContentView: View {
     @State private var betaPopup: String? = nil
     @State private var skillCopied = false
     @State private var fsWatcher: DispatchSourceFileSystemObject? = nil
-    @State private var reInjectTimer: Timer? = nil
+    @State private var claudeSettingsWatcher: DispatchSourceFileSystemObject? = nil
 
     private let hook = HookManager.shared
 
@@ -102,11 +102,16 @@ struct ContentView: View {
                                     }
                                 }
                                 Text(agent.note).font(.caption2).foregroundStyle(.secondary)
+                                if !agent.isSupported {
+                                    Text("已调查: 该 Agent 不支持外部 Stop hook")
+                                        .font(.caption2)
+                                        .foregroundStyle(.orange)
+                                }
                             }
                         }
                     }
                     .toggleStyle(.switch)
-                    .disabled(!settings.isConfigured)
+                    .disabled(!settings.isConfigured || !agent.isSupported)
                 }
                 if !settings.isConfigured {
                     Text("先填好上面的推送地址, 才能开启开关").font(.caption2).foregroundStyle(.orange)
@@ -218,19 +223,22 @@ struct ContentView: View {
         Self.reinstallAllEnabledBuiltins()
     }
 
-    /// 在 app 启动 + 面板重新打开 + 60s 周期都调。
-    /// 对所有内置 agent 都 idempotent 重装 — CodeFuse 自身 cleanup 会随
-    /// 重启 / 切项目 把我们的 hook 注入抹掉, 这个函数是"防护 + 自愈":
-    /// 不管文件里当前什么样, 都调用一次 install (内部 idempotent, 已装的不重复加)。
-    /// 用户在 UI 关掉某个 agent 的代价: 下次启动 / 60s 周期 又会被装回去 —
-    /// 这是有意为之, 避免“clean up → DoneP 静默失效”这种状态。
-    /// 用户可以在面板上 toggle 关, 该 uninstall 会同时记到 intent, 在面板重新打开
-    /// 时 refresh 会读文件后同步状态, 不会“被装回”误导。
+    /// 在 app 启动 + 面板重新打开 + 文件被外部改时都调 (kqueue 事件驱动, 不轮询)。
+    /// 只重注"用户明确 toggle ON 过"的内置 agent (UserDefaults 记住意图),
+    /// 不管文件里现在什么状态 — CodeFuse 自身 cleanup 会随重启 / 切项目
+    /// 把我们的 hook 注入抹掉, 这个函数是"防护 + 自愈": 文件被改 → 重注
+    /// 用户表达过"要"的 agent。
     static func reinstallAllEnabledBuiltins() {
         let h = HookManager.shared
         try? h.writeNotifyScript(server: DonePSettings.shared.server, topic: DonePSettings.shared.topic)
+        let defaults = UserDefaults.standard
         for a in BUILTIN_AGENTS {
-            try? h.install(a)
+            // 不重注 isSupported=false 的 (CodeFuse UI 模式)
+            guard a.isSupported else { continue }
+            // 遵循用户 toggle 意图: 记过 on 的, 文件被外部改时就重注
+            if defaults.bool(forKey: "donep.intent.\(a.id)") {
+                try? h.install(a)  // install() 内部 idempotent
+            }
         }
     }
 
@@ -239,8 +247,9 @@ struct ContentView: View {
         // 自定义 agent 的开关状态由注册文件的 enabled 决定(默认开)
         for c in customAgents { installed["custom-\(c.id)"] = c.enabled ?? true }
         // "采纳"现状: 如果文件里已装, 就当作用户意图 (避免首次启动需手 toggle)
+        // 不采纳 isSupported=false 的 (CodeFuse UI 模式不该被自愈, 但它本身也不会被装)
         let defaults = UserDefaults.standard
-        for a in BUILTIN_AGENTS {
+        for a in BUILTIN_AGENTS where a.isSupported {
             let key = "donep.intent.\(a.id)"
             if !defaults.bool(forKey: key) && hook.isInstalled(a) {
                 defaults.set(true, forKey: key)
@@ -264,12 +273,25 @@ struct ContentView: View {
         src.resume()
         fsWatcher = src
 
-        // 60s 一次: 重注所有"开着"的内置 agent (CodeFuse 自己的 cleanup 会覆写 hooks.json,
-        // 装不装都安全, install() 内部是 idempotent: 已经在的不重复加)。
-        reInjectTimer?.invalidate()
-        reInjectTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
-            reinstallEnabledBuiltins()
-        }
+        // 监 CodeFuse / antcc 实际生效的 hooks 文件 (~/.claude/settings.json)。
+        // CodeFuse 启动 session / 切项目 / antcc 都会改这个文件。文件一变就重注,
+        // 不轮询, 不耗资源 (kqueue 事件驱动)。
+        startClaudeSettingsWatcherIfNeeded()
+    }
+
+    /// 监听 ~/.claude/settings.json: CodeFuse (antcc)、Claude CLI、任何 Claude
+    /// 内核的客户端启动/切项目时都会改这个文件。文件被外部改了就重注所有内置 agent。
+    private func startClaudeSettingsWatcherIfNeeded() {
+        guard claudeSettingsWatcher == nil else { return }
+        let path = ("~/.claude/settings.json" as NSString).expandingTildeInPath
+        let fd = open(path, O_EVTONLY)
+        guard fd >= 0 else { return }
+        let src = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd, eventMask: [.write, .delete, .rename, .attrib], queue: .main)
+        src.setEventHandler { Self.reinstallAllEnabledBuiltins() }
+        src.setCancelHandler { close(fd) }
+        src.resume()
+        claudeSettingsWatcher = src
     }
 
     /// 关闭自定义 agent: 改注册文件 enabled=false, 并执行其 uninstall 命令

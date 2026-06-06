@@ -14,6 +14,7 @@ struct AgentDef: Identifiable {
     let note: String        // 说明
     var beta: Bool = false  // 是否 beta (不一定起作用, 如被托管的 CodeFuse)
     var isCustom: Bool = false  // 是否用户自定义
+    var isSupported: Bool = true // 门能否被勾 (false = 按钮置灰, 比如 CodeFuse UI 模式被 --settings 覆盖)
     var kind: AgentKind = .claudeStyle
     var agentLabel: String { name }   // 注入 --agent 的标识 (手表上显示哪个端)
 
@@ -46,7 +47,8 @@ enum DonePConst {
 let BUILTIN_AGENTS: [AgentDef] = [
     AgentDef(id: "claude",   name: "Claude Code", configPath: "~/.claude/settings.json",            note: "官方 Claude Code CLI"),
     AgentDef(id: "codex",    name: "Codex",       configPath: "~/.codex/hooks.json",                 note: "OpenAI Codex CLI"),
-    AgentDef(id: "codefuse", name: "CodeFuse",    configPath: "~/.codefuse/engine/cc/settings.json", note: "antcc 模式可用；UI 模式被覆盖 (--settings)", beta: true),
+    AgentDef(id: "codefuse", name: "CodeFuse (antcc)", configPath: "~/.claude/settings.json",            note: "antcc 模式 (走 Claude 内核, 与 Claude 开关同文件 — 不会重复注入)"),
+    AgentDef(id: "codefuse-ui", name: "CodeFuse (UI)",   configPath: "(不支持)",                       note: "CodeFuse Electron 客户端用 --settings 覆盖, 外部 hook 走不通", beta: true, isSupported: false),
     AgentDef(id: "openclaw", name: "OpenClaw",    configPath: "~/.openclaw/hooks/donep",             note: "OpenClaw (agent_end 事件, 开启后需 gateway restart)", kind: .openclaw),
 ]
 
@@ -194,6 +196,8 @@ final class HookManager {
         if agent.kind == .openclaw {
             return fm.fileExists(atPath: (agent.expandedPath as NSString).appendingPathComponent("HOOK.md"))
         }
+        // 不支持的 Agent (如 CodeFuse UI 模式): 一直返回 false, 开关是置灰的。
+        if !agent.isSupported { return false }
         let obj = loadJSON(agent.expandedPath)
         guard let hooks = obj["hooks"] as? [String: Any],
               let stop = hooks["Stop"] as? [[String: Any]] else { return false }
@@ -209,6 +213,7 @@ final class HookManager {
 
     /// 安装: 往 Stop 追加一条指向 donep-notify 的 hook
     func install(_ agent: AgentDef) throws {
+        if !agent.isSupported { return }  // 不支持的 (如 CodeFuse UI 模式): 什么都不做
         if agent.kind == .openclaw { try installOpenClaw(agent); return }
         var obj = loadJSON(agent.expandedPath)
         var hooks = (obj["hooks"] as? [String: Any]) ?? [:]
@@ -234,6 +239,7 @@ final class HookManager {
 
     /// 卸载: 移除指向 donep-notify 的 hook (保留其它钩子)
     func uninstall(_ agent: AgentDef) throws {
+        if !agent.isSupported { return }  // 不支持的: 不用卸
         if agent.kind == .openclaw {
             try? fm.removeItem(atPath: agent.expandedPath)
             return
