@@ -14,6 +14,11 @@ struct ContentView: View {
             // 标题
             HStack {
                 Image(systemName: "bell.badge.fill")
+                    .foregroundStyle(
+                        LinearGradient(colors: [Color(red: 0.09, green: 0.39, blue: 1.0),
+                                                Color(red: 0.0, green: 0.75, blue: 1.0)],
+                                       startPoint: .top, endPoint: .bottom)
+                    )
                 Text("DoneP").font(.headline)
                 Spacer()
                 Text("任务完成 · 震你手表").font(.caption).foregroundStyle(.secondary)
@@ -29,9 +34,16 @@ struct ContentView: View {
                 HStack {
                     TextField("topic (你的专属频道名)", text: $settings.topic)
                         .textFieldStyle(.roundedBorder)
+                    Button {
+                        settings.topic = DonePSettings.makeDefaultTopic()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .help("重新生成一个随机 topic")
                     Button("测试") { sendTest() }
                         .disabled(!settings.isConfigured)
                 }
+                Text("首次已自动生成专属 topic, 手机 ntfy 订阅同名即可").font(.caption2).foregroundStyle(.secondary)
                 if let ok = lastTestOK {
                     Text(ok ? "✅ 已发送, 看手机/手表" : "❌ 发送失败")
                         .font(.caption).foregroundStyle(ok ? .green : .red)
@@ -84,6 +96,27 @@ struct ContentView: View {
         }
         .padding(16)
         .frame(width: 340)
+        .background(
+            ZStack {
+                // 主体背景
+                Color(nsColor: .windowBackgroundColor)
+                // 火山引擎蓝渐变光晕 (与图标同主题色)
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.09, green: 0.39, blue: 1.0).opacity(0.18),
+                        Color(red: 0.0, green: 0.75, blue: 1.0).opacity(0.06),
+                        Color.clear
+                    ],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                )
+                // 右下角青蓝辉光
+                RadialGradient(
+                    colors: [Color(red: 0.0, green: 0.75, blue: 1.0).opacity(0.12), Color.clear],
+                    center: .bottomTrailing, startRadius: 4, endRadius: 260
+                )
+            }
+            .ignoresSafeArea()
+        )
         .onAppear { refresh() }
     }
 
