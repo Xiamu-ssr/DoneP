@@ -346,8 +346,30 @@ final class HookManager {
           return null;
         }
 
-        // ntfy 的 Title header 只接 latin-1, emoji (UTF-16 surrogate) 会 fetch throw。
-        // 用 Tags 做装饰。
+        // 从 event.messages 尾部找最后一条 assistant 消息, 抽纯文本。
+        // content 可能是字符串, 也可能是 [{type:"text",text}, ...] 块数组。
+        function extractReply(messages) {
+          if (!Array.isArray(messages)) return "";
+          for (let i = messages.length - 1; i >= 0; i--) {
+            const m = messages[i];
+            if (!m || m.role !== "assistant") continue;
+            const c = m.content;
+            if (typeof c === "string") return c.trim();
+            if (Array.isArray(c)) {
+              const txt = c
+                .filter((b) => b && (b.type === "text" || typeof b.text === "string"))
+                .map((b) => b.text || "")
+                .join("")
+                .trim();
+              if (txt) return txt;
+            }
+          }
+          return "";
+        }
+
+        // ntfy 的 Title header 只接 latin-1, emoji (UTF-16 surrogate) 会 fetch throw,
+        // 所以 Title 用纯 ASCII; body 无此限制, 直接放完整中文回复 (不截断,
+        // 手表端会自己截)。
         export default definePluginEntry({
           id: "donep",
           name: "DoneP",
@@ -357,10 +379,12 @@ final class HookManager {
                 if (event && event.success === false) return;
                 const c = readNtfyConfig();
                 if (!c) return;
+                const reply = extractReply(event && event.messages);
+                const body = reply && reply.length > 0 ? reply : "done";
                 await fetch(c.server + "/" + c.topic, {
                   method: "POST",
                   headers: { Title: "OpenClaw done", Tags: "bell" },
-                  body: "done",
+                  body,
                 }).catch(() => {});
               } catch (_) {}
             }, { priority: 10 });
