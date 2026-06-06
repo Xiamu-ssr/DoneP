@@ -20,5 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         // 启动时安装/更新 skill 到 ~/.donep/skill/SKILL.md
         DonePSkill.install()
+        // 启动时直接 idempotent 重注所有已装的内置 agent (不等用户点开面板)。
+        // 原因: CodeFuse 自身 cleanup 会覆写 hooks.json, 启动即补, 防护最稳。
+        ContentView.reinstallAllEnabledBuiltins()
     }
 }

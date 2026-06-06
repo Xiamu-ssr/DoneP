@@ -46,7 +46,7 @@ enum DonePConst {
 let BUILTIN_AGENTS: [AgentDef] = [
     AgentDef(id: "claude",   name: "Claude Code", configPath: "~/.claude/settings.json",            note: "官方 Claude Code CLI"),
     AgentDef(id: "codex",    name: "Codex",       configPath: "~/.codex/hooks.json",                 note: "OpenAI Codex CLI"),
-    AgentDef(id: "codefuse", name: "CodeFuse",    configPath: "~/.codefuse/engine/cc/settings.json", note: "蚂蚁 CodeFuse / antcc (托管 Claude 内核)", beta: true),
+    AgentDef(id: "codefuse", name: "CodeFuse",    configPath: "~/.codefuse/engine/cc/settings.json", note: "antcc 模式可用；UI 模式被覆盖 (--settings)", beta: true),
     AgentDef(id: "openclaw", name: "OpenClaw",    configPath: "~/.openclaw/hooks/donep",             note: "OpenClaw (agent_end 事件, 开启后需 gateway restart)", kind: .openclaw),
 ]
 

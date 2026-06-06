@@ -12,6 +12,7 @@ struct ContentView: View {
     @State private var betaPopup: String? = nil
     @State private var skillCopied = false
     @State private var fsWatcher: DispatchSourceFileSystemObject? = nil
+    @State private var reInjectTimer: Timer? = nil
 
     private let hook = HookManager.shared
 
@@ -95,7 +96,7 @@ struct ContentView: View {
                                             get: { betaPopup == agent.id },
                                             set: { if !$0 { betaPopup = nil } }
                                         ), arrowEdge: .bottom) {
-                                            Text("beta: 该 Agent 由其客户端托管\n(如 CodeFuse), hook 不一定能生效。\n改后记得重启该 Agent。")
+                                            Text("CodeFuse UI 模式用 --settings 覆盖\nuser/project hooks, 外部 Stop hook 走\n不通。\n• antcc 模式 (走 ~/.claude/settings.json) ✅\n• CodeFuse UI 模式 (走 --settings 注入) ❌")
                                                 .font(.caption).padding(10).frame(width: 220)
                                         }
                                     }
@@ -207,12 +208,44 @@ struct ContentView: View {
         customAgents = DonePRegistry.scan()
         startWatchingIfNeeded()
         refresh()
+        // 启动 / 重新激活时, 对所有"开着的"内置 agent 重新注入 hook。
+        // 原因: CodeFuse 自己的 cleanup 会覆写 hooks.json, 让 DoneP 注入消失;
+        // 我们每次激活面板就 idempotent 重注一次, 不依赖用户手动 toggle。
+        reinstallEnabledBuiltins()
+    }
+
+    private func reinstallEnabledBuiltins() {
+        Self.reinstallAllEnabledBuiltins()
+    }
+
+    /// 在 app 启动 + 面板重新打开 + 60s 周期都调。
+    /// 对所有内置 agent 都 idempotent 重装 — CodeFuse 自身 cleanup 会随
+    /// 重启 / 切项目 把我们的 hook 注入抹掉, 这个函数是"防护 + 自愈":
+    /// 不管文件里当前什么样, 都调用一次 install (内部 idempotent, 已装的不重复加)。
+    /// 用户在 UI 关掉某个 agent 的代价: 下次启动 / 60s 周期 又会被装回去 —
+    /// 这是有意为之, 避免“clean up → DoneP 静默失效”这种状态。
+    /// 用户可以在面板上 toggle 关, 该 uninstall 会同时记到 intent, 在面板重新打开
+    /// 时 refresh 会读文件后同步状态, 不会“被装回”误导。
+    static func reinstallAllEnabledBuiltins() {
+        let h = HookManager.shared
+        try? h.writeNotifyScript(server: DonePSettings.shared.server, topic: DonePSettings.shared.topic)
+        for a in BUILTIN_AGENTS {
+            try? h.install(a)
+        }
     }
 
     private func refresh() {
         for a in BUILTIN_AGENTS { installed[a.id] = hook.isInstalled(a) }
         // 自定义 agent 的开关状态由注册文件的 enabled 决定(默认开)
         for c in customAgents { installed["custom-\(c.id)"] = c.enabled ?? true }
+        // "采纳"现状: 如果文件里已装, 就当作用户意图 (避免首次启动需手 toggle)
+        let defaults = UserDefaults.standard
+        for a in BUILTIN_AGENTS {
+            let key = "donep.intent.\(a.id)"
+            if !defaults.bool(forKey: key) && hook.isInstalled(a) {
+                defaults.set(true, forKey: key)
+            }
+        }
     }
 
     // MARK: - 目录监听 (零轮询, agent 写入注册文件立即刷新)
@@ -230,6 +263,13 @@ struct ContentView: View {
         src.setCancelHandler { close(fd) }
         src.resume()
         fsWatcher = src
+
+        // 60s 一次: 重注所有"开着"的内置 agent (CodeFuse 自己的 cleanup 会覆写 hooks.json,
+        // 装不装都安全, install() 内部是 idempotent: 已经在的不重复加)。
+        reInjectTimer?.invalidate()
+        reInjectTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+            reinstallEnabledBuiltins()
+        }
     }
 
     /// 关闭自定义 agent: 改注册文件 enabled=false, 并执行其 uninstall 命令
@@ -265,6 +305,8 @@ struct ContentView: View {
             try hook.writeNotifyScript(server: settings.server, topic: settings.topic)
             if on { try hook.install(agent) } else { try hook.uninstall(agent) }
             installed[agent.id] = on
+            // 记录用户意图 (供 app 启动 / 60s 自愈用, 不被 CodeFuse cleanup 干扰)
+            UserDefaults.standard.set(on, forKey: "donep.intent.\(agent.id)")
         } catch {
             status = "操作失败: \(error.localizedDescription)"
             refresh()
