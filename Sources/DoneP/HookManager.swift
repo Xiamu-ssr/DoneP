@@ -45,11 +45,10 @@ enum DonePConst {
 
 /// 受支持的 Agent 列表 (都是 Claude Code 内核的 hooks.json / settings.json 结构)
 let BUILTIN_AGENTS: [AgentDef] = [
-    AgentDef(id: "claude",   name: "Claude Code", configPath: "~/.claude/settings.json",            note: "官方 Claude Code CLI"),
-    AgentDef(id: "codex",    name: "Codex",       configPath: "~/.codex/hooks.json",                 note: "OpenAI Codex CLI"),
-    AgentDef(id: "codefuse", name: "CodeFuse (antcc)", configPath: "~/.claude/settings.json",            note: "antcc 模式 (走 Claude 内核, 与 Claude 开关同文件 — 不会重复注入)"),
-    AgentDef(id: "codefuse-ui", name: "CodeFuse (UI)",   configPath: "(不支持)",                       note: "CodeFuse Electron 客户端用 --settings 覆盖, 外部 hook 走不通", beta: true, isSupported: false),
-    AgentDef(id: "openclaw", name: "OpenClaw",    configPath: "(plugin)",                              note: "真插件 api.on(agent_end); 开后自动写 openclaw.json + 装插件, 需 gateway restart", kind: .openclaw),
+    AgentDef(id: "claude",   name: "Claude Code",  configPath: "~/.claude/settings.json", note: "官方 Claude Code CLI"),
+    AgentDef(id: "codex",    name: "Codex",        configPath: "~/.codex/hooks.json",      note: "OpenAI Codex CLI"),
+    AgentDef(id: "codefuse", name: "CodeFuse",     configPath: "~/.claude/settings.json", note: "antcc 模式 (与 Claude 共用 settings.json)"),
+    AgentDef(id: "openclaw", name: "OpenClaw",     configPath: "(plugin)",                  note: "真插件, 开启后需 openclaw restart", kind: .openclaw),
 ]
 
 /// 负责把 donep-notify 注入/移除到各 Agent 的 Stop 钩子

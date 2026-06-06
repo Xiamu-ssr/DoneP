@@ -59,9 +59,9 @@ struct ContentView: View {
                     Button("测试") { sendTest() }
                         .disabled(!settings.isConfigured)
                 }
-                Text("首次已自动生成专属 topic, 手机 ntfy 订阅同名即可").font(.caption2).foregroundStyle(.secondary)
+                Text("手机 ntfy 订阅同名 topic 即可").font(.caption2).foregroundStyle(.secondary)
                 if let ok = lastTestOK {
-                    Text(ok ? "✅ 已发送, 看手机/手表" : "❌ 发送失败")
+                    Text(ok ? "✅ 已发送" : "❌ 发送失败")
                         .font(.caption).foregroundStyle(ok ? .green : .red)
                 }
             }
@@ -102,11 +102,6 @@ struct ContentView: View {
                                     }
                                 }
                                 Text(agent.note).font(.caption2).foregroundStyle(.secondary)
-                                if !agent.isSupported {
-                                    Text("已调查: 该 Agent 不支持外部 Stop hook")
-                                        .font(.caption2)
-                                        .foregroundStyle(.orange)
-                                }
                             }
                         }
                     }
@@ -114,7 +109,7 @@ struct ContentView: View {
                     .disabled(!settings.isConfigured || !agent.isSupported)
                 }
                 if !settings.isConfigured {
-                    Text("先填好上面的推送地址, 才能开启开关").font(.caption2).foregroundStyle(.orange)
+                    Text("填好 ntfy 地址后即可开启").font(.caption2).foregroundStyle(.orange)
                 }
 
                 // 接入自定义 Agent: 指向 skill, 让用户的 agent 自己跟着做
@@ -124,7 +119,7 @@ struct ContentView: View {
                         Image(systemName: "sparkles").font(.caption2).foregroundStyle(.blue)
                         Text("接入你自己的 Agent").font(.caption).bold()
                     }
-                    Text("把下面路径发给你的 AI, 让它读这份 skill 自动接入:")
+                    Text("发给你的 AI, 让它读这份 skill 自动接入")
                         .font(.caption2).foregroundStyle(.secondary)
                     HStack(spacing: 6) {
                         Text(DonePRegistry.skillPath)
@@ -167,9 +162,6 @@ struct ContentView: View {
                 Button("退出") { NSApplication.shared.terminate(nil) }
                     .controlSize(.small)
             }
-
-            Text("改了开关后, 请重启对应 Agent 才生效")
-                .font(.caption2).foregroundStyle(.secondary)
         }
         .padding(16)
         .frame(width: 340)
