@@ -251,7 +251,6 @@ struct ContentView: View {
             try? p.run()
         }
         installed[agent.id] = on
-        status = "\(agent.name) 已\(on ? "开启" : "关闭")"
     }
 
     private func toggle(_ agent: AgentDef, on: Bool) {
@@ -266,7 +265,6 @@ struct ContentView: View {
             try hook.writeNotifyScript(server: settings.server, topic: settings.topic)
             if on { try hook.install(agent) } else { try hook.uninstall(agent) }
             installed[agent.id] = on
-            status = "\(agent.name) 已\(on ? "开启" : "关闭")"
         } catch {
             status = "操作失败: \(error.localizedDescription)"
             refresh()

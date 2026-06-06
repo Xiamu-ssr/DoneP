@@ -47,7 +47,7 @@ let BUILTIN_AGENTS: [AgentDef] = [
     AgentDef(id: "claude",   name: "Claude Code", configPath: "~/.claude/settings.json",            note: "官方 Claude Code CLI"),
     AgentDef(id: "codex",    name: "Codex",       configPath: "~/.codex/hooks.json",                 note: "OpenAI Codex CLI"),
     AgentDef(id: "codefuse", name: "CodeFuse",    configPath: "~/.codefuse/engine/cc/settings.json", note: "蚂蚁 CodeFuse / antcc (托管 Claude 内核)", beta: true),
-    AgentDef(id: "openclaw", name: "OpenClaw",    configPath: "~/.openclaw/hooks/donep",             note: "OpenClaw (agent_end 事件, 需重启 gateway)", beta: true, kind: .openclaw),
+    AgentDef(id: "openclaw", name: "OpenClaw",    configPath: "~/.openclaw/hooks/donep",             note: "OpenClaw (agent_end 事件, 开启后需 gateway restart)", kind: .openclaw),
 ]
 
 /// 负责把 donep-notify 注入/移除到各 Agent 的 Stop 钩子

@@ -1,0 +1,23 @@
+{
+  "id": "donep",
+  "name": "DoneP",
+  "description": "Agent 跑完一轮 (agent_end) 时推一条通知到 ntfy/手表。",
+  "activation": {
+    "onStartup": true
+  },
+  "enabledByDefault": true,
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "scriptPath": {
+        "type": "string",
+        "description": "donep-notify 脚本绝对路径"
+      },
+      "agentLabel": {
+        "type": "string",
+        "description": "通知标题里的端名"
+      }
+    }
+  }
+}
