@@ -94,16 +94,20 @@ final class HookManager {
         PROJ_DIR="${CLAUDE_PROJECT_DIR:-${CODEX_PROJECT_DIR:-$PWD}}"
         PROJ="$(basename "$PROJ_DIR" 2>/dev/null)"
 
-        # 从 stdin 的 hook JSON 里取 transcript_path, 读最后一条 assistant 回复全文。
-        # 同时兼容两种格式:
-        #   Claude: 行 {type:"assistant", message:{content:[{type:"text",text}]}} 或 {role:"assistant",content:...}
-        #   Codex : 行 {type:"response_item", payload:{type:"message",role:"assistant",content:[{type:"output_text",text}]}}
-        # 不截断 — 手表/手机端自己会截。拿不到就降级(不报错不阻塞)。
+        # 从 stdin 的 hook JSON 里抽: 回复全文 + 自动识别哪个端。
+        # 为什么需要自动识别: Codex 调 Stop hook 时 **不传命令行参数**(argc=0),
+        #   所以 --agent 拿不到, 标题会退到 fallback。但它 stdin 里有 transcript_path/cwd,
+        #   可以据此反推是哪个端。
+        # 回复全文优先级: stdin.last_assistant_message (Codex 直接给) > 解析 transcript 文件。
+        #   transcript 兼容 Claude({type:assistant}/content[].text) 与 Codex(response_item.payload/output_text)。
+        # 不截断 — 手表/手机端自己截。拿不到就降级(不报错不阻塞)。
         REPLY=""
+        AGENT_HINT=""
         if [ ! -t 0 ]; then
           STDIN_JSON="$(cat 2>/dev/null)"
           if [ -n "$STDIN_JSON" ] && command -v python3 >/dev/null 2>&1; then
-            REPLY="$(printf '%s' "$STDIN_JSON" | python3 -c '
+            # 输出两行: 第1行=端名提示, 第2行起=回复全文
+            PARSED="$(printf '%s' "$STDIN_JSON" | python3 -c '
         import sys,json,os
         def texts_from_content(c):
             out=[]
@@ -117,34 +121,44 @@ final class HookManager {
         try:
             d=json.load(sys.stdin)
             tp=d.get("transcript_path") or d.get("transcriptPath") or d.get("TranscriptPath") or ""
-            txt=""
-            if tp and os.path.exists(os.path.expanduser(tp)):
+            # 端名识别: 看 transcript_path / cwd 路径特征
+            hint=""
+            probe=(tp+" "+(d.get("cwd") or "")).lower()
+            if "/.codex/" in probe or "codex" in probe: hint="Codex"
+            elif "/.claude/" in probe or "claude" in probe: hint="Claude Code"
+            # 回复全文: 优先 stdin 直给的
+            txt=d.get("last_assistant_message") or d.get("lastAssistantMessage") or ""
+            if not (isinstance(txt,str) and txt.strip()) and tp and os.path.exists(os.path.expanduser(tp)):
                 last=""
                 for line in open(os.path.expanduser(tp)):
                     line=line.strip()
                     if not line: continue
                     try: o=json.loads(line)
                     except: continue
-                    # Codex: payload 包一层
                     p=o.get("payload") if isinstance(o.get("payload"),dict) else None
                     if p is not None:
                         if p.get("type")=="message" and p.get("role")=="assistant":
                             t=texts_from_content(p.get("content"))
                             if t.strip(): last=t
                         continue
-                    # Claude: 顶层 type=assistant 或 message.role=assistant
                     m=o.get("message") if isinstance(o.get("message"),dict) else o
                     if o.get("type")=="assistant" or m.get("role")=="assistant":
                         t=texts_from_content(m.get("content"))
                         if t.strip(): last=t
                 txt=last
-            txt=" ".join(txt.split())
+            txt=" ".join((txt or "").split())
+            print(hint)
             print(txt)
         except Exception:
-            print("")
+            print(""); print("")
         ' 2>/dev/null)"
+            AGENT_HINT="$(printf '%s' "$PARSED" | sed -n '1p')"
+            REPLY="$(printf '%s' "$PARSED" | sed -n '2,$p')"
           fi
         fi
+
+        # --agent 没传进来时(如 Codex argc=0), 用 stdin 识别出的端名
+        if [ -z "$AGENT" ] && [ -n "$AGENT_HINT" ]; then AGENT="$AGENT_HINT"; fi
 
         # 组装消息
         if [ "$#" -ge 2 ]; then
