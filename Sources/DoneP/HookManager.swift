@@ -169,6 +169,17 @@ final class HookManager {
     }
 
     private func saveJSON(_ obj: [String: Any], to path: String) throws {
+        // 先序列化出目标 data
+        let data = try JSONSerialization.data(withJSONObject: obj,
+                                              options: [.prettyPrinted, .withoutEscapingSlashes])
+        // ★ 与已有内容对比: 一致就不写。
+        //   不这么做会自反馈: 写文件 → kqueue 事件 → reinstall → 再写 → 死循环
+        //   2700+ 能量消耗就是这么来的。
+        if fm.fileExists(atPath: path),
+           let existing = try? Data(contentsOf: URL(fileURLWithPath: path)),
+           existing == data {
+            return
+        }
         // 备份
         if fm.fileExists(atPath: path) {
             let bak = path + ".bak-donep-" + Self.timestamp()
@@ -177,8 +188,6 @@ final class HookManager {
             try fm.createDirectory(atPath: (path as NSString).deletingLastPathComponent,
                                    withIntermediateDirectories: true)
         }
-        let data = try JSONSerialization.data(withJSONObject: obj,
-                                              options: [.prettyPrinted, .withoutEscapingSlashes])
         try data.write(to: URL(fileURLWithPath: path))
     }
 
@@ -337,6 +346,8 @@ final class HookManager {
           return null;
         }
 
+        // ntfy 的 Title header 只接 latin-1, emoji (UTF-16 surrogate) 会 fetch throw。
+        // 用 Tags 做装饰。
         export default definePluginEntry({
           id: "donep",
           name: "DoneP",
@@ -348,8 +359,8 @@ final class HookManager {
                 if (!c) return;
                 await fetch(c.server + "/" + c.topic, {
                   method: "POST",
-                  headers: { Title: "✅ OpenClaw", Tags: "bell" },
-                  body: "完成",
+                  headers: { Title: "OpenClaw done", Tags: "bell" },
+                  body: "done",
                 }).catch(() => {});
               } catch (_) {}
             }, { priority: 10 });

@@ -273,14 +273,24 @@ struct ContentView: View {
 
     /// 监听 ~/.claude/settings.json: CodeFuse (antcc)、Claude CLI、任何 Claude
     /// 内核的客户端启动/切项目时都会改这个文件。文件被外部改了就重注所有内置 agent。
+    /// 关键: 带 debounce + 只看 .write (不看 .attrib) — OpenClaw 自己的 mcp/perm 动作
+    /// 频繁动这个文件, 不 debounce 会事件洪水: kqueue 事件 → reinstall → 写文件 →
+    /// 事件 → 死循环, CPU 拉满 (2700+ 能量消耗就是这么来的)。
+    private static var claudeDebounceWork: DispatchWorkItem? = nil
     private func startClaudeSettingsWatcherIfNeeded() {
         guard claudeSettingsWatcher == nil else { return }
         let path = ("~/.claude/settings.json" as NSString).expandingTildeInPath
         let fd = open(path, O_EVTONLY)
         guard fd >= 0 else { return }
         let src = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd, eventMask: [.write, .delete, .rename, .attrib], queue: .main)
-        src.setEventHandler { Self.reinstallAllEnabledBuiltins() }
+            fileDescriptor: fd, eventMask: [.write, .delete, .rename], queue: .main)
+        src.setEventHandler {
+            // 500ms debounce: 连续的写合并为一次重注
+            Self.claudeDebounceWork?.cancel()
+            let work = DispatchWorkItem { Self.reinstallAllEnabledBuiltins() }
+            Self.claudeDebounceWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+        }
         src.setCancelHandler { close(fd) }
         src.resume()
         claudeSettingsWatcher = src
