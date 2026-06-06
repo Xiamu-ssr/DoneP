@@ -62,7 +62,7 @@ enum DonePSkill {
     两种调用方式，你自己选：
 
     ```bash
-    # A) 省心模式：只报身份，正文由 DoneP 自动生成（项目名 + 你最后回复的摘要，若能拿到）
+    # A) 省心模式：只报身份，正文由 DoneP 自动生成
     '~/Library/Application Support/DoneP/donep-notify' --agent 'MyBot'
 
     # B) 完全自定义：你自己写标题和正文（硬件/特殊场景，你最懂该说什么）
@@ -71,7 +71,9 @@ enum DonePSkill {
 
     > 路径含空格，命令里**必须加单引号**，否则 shell 拆词导致命令找不到。
     >
-    > 手表屏幕小，**信息密度优先**：标题放"哪个端"，正文短句即可，不要写"任务完成"这种废话占地方。
+    > **省心模式的正文怎么来的**：若你是 Claude / Codex 内核的 agent，Stop hook 会通过 stdin 传一个含 `transcript_path` 的 JSON，donep-notify 自动读出你**最后一条 assistant 回复全文**作为正文（不截断，手表/手机端自己截断显示），同时兼容 Claude 与 Codex 两种 transcript 格式。拿不到才降级为项目名 / "完成"。
+    >
+    > 若你是自定义脚本/硬件（不走 stdin transcript），想要正文就用 B) 自己传。
 
     **怎么触发**由你决定（这是你最懂的部分，DoneP 不干预）：
     - 你是 Claude/Codex 风格的 agent → 把上面命令注入自己的 `Stop` hook（`hooks.json` 的 `Stop[].hooks[].command`）。

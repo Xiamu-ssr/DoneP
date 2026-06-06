@@ -26,6 +26,11 @@ flowchart LR
 
 > 关键点：**用你已有的手机/手表就行**，不用买灵动岛配件、不用新 AI 设备。
 
+<p align="center">
+  <img src="Resources/watch-shot.jpg" width="300" alt="DoneP 手表实拍" />
+</p>
+<p align="center"><i>Agent 跑完任务的那一刻，叮一下 —— 抬腕就看到结果（含它最后回复的内容）。</i></p>
+
 ## 用起来（3 步）
 
 1. **手机装 [ntfy](https://github.com/binwiederhier/ntfy-android/releases)**，订阅 DoneP 给你的 topic
@@ -33,16 +38,17 @@ flowchart LR
 2. **打开 DoneP**，菜单栏点铃铛 → topic 已自动生成好，点「测试」确认手机收到
 3. **给想提醒的 Agent 拨开开关** —— 完事
 
-| 内置支持 | 配置位置 |
-|---|---|
-| Claude Code（含 antcc） | `~/.claude/settings.json` |
-| Codex | `~/.codex/hooks.json` |
-| CodeFuse（beta） | `~/.codefuse/engine/cc/settings.json` |
-| OpenClaw（beta） | `~/.openclaw/hooks/donep/`（`agent_end` 事件） |
+| 内置支持 | 接入方式 | 通知带回复内容 |
+|---|---|---|
+| Claude Code（含 antcc） | `~/.claude/settings.json` 的 `Stop` hook | ✅ 完整回复 |
+| Codex | `~/.codex/hooks.json` 的 `Stop` hook | ✅ 完整回复 |
+| OpenClaw | 原生插件（`agent_end` 事件）| ✅ 完整回复 |
 
-> DoneP 只把 `donep-notify` 安全注入/移除到各 Agent 的结束钩子，**保留你已有的其它钩子**并自动备份 `*.bak-donep-*`。结束钩子 = 整轮结束停下等输入那一刻，不会过程中狂震。
+> Claude / Codex：DoneP 只把 `donep-notify` 安全注入/移除到各 Agent 的 `Stop` 钩子，**保留你已有的其它钩子**并自动备份 `*.bak-donep-*`。结束钩子 = 整轮结束停下等输入那一刻，不会过程中狂震。改完钩子需**新开一个会话**才生效（hook 在会话启动时快照）。
 >
-> 标 **beta** 的 Agent 被其客户端托管，hook 不一定生效；改后需重启该 Agent。
+> OpenClaw：开启开关时 DoneP 自动装插件到 `~/.openclaw/extensions/donep/` 并写好配置，需 `openclaw restart` 一次让 gateway 加载插件。
+>
+> 通知正文 = Agent 最后一条回复全文（不截断，手表/手机端自己截断显示）。
 
 ### 接入你自己的 Agent（Agent 时代玩法）
 
@@ -63,8 +69,8 @@ flowchart LR
 ## 构建
 
 ```bash
-./scripts/build-app.sh 0.6.0   # 编译 + 组装 DoneP.app
-./scripts/make-dmg.sh 0.6.0    # 打包 DMG
+./scripts/build-app.sh 0.8.0   # 编译 + 组装 DoneP.app
+./scripts/make-dmg.sh 0.8.0    # 打包 DMG
 ```
 
 ## ☕ 请我喝咖啡
