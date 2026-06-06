@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="Resources/logo-transparent.png" width="160" alt="DoneP" />
+</p>
+
 # DoneP 🔔
 
 **让你的 AI coding agent 干完活，震你一下手表。**
